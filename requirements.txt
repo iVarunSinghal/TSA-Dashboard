@@ -5,5 +5,5 @@ numpy
 plotly
 pmdarima
 prophet
-tensorflow
+tensorflow-cpu
 scikit-learn
