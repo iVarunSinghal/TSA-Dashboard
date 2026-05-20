@@ -100,10 +100,13 @@ def run_forecast(df, model_type, forecast_days):
         
     elif model_type == 'LSTM':
         from tensorflow.keras.layers import Dropout
-        scaler = MinMaxScaler()
-        scaled_data = scaler.fit_transform(y.values.reshape(-1, 1))
         
-        # FIX 1: Reduced window size to 20 to heavily weight recent momentum
+        # FIX: Train the model on daily returns (differences), not absolute prices!
+        returns = y.pct_change().dropna().values.reshape(-1, 1)
+        
+        scaler = MinMaxScaler(feature_range=(-1, 1))
+        scaled_data = scaler.fit_transform(returns)
+        
         window_size = 20
         X, Y = [], []
         for i in range(window_size, len(scaled_data)):
@@ -112,26 +115,34 @@ def run_forecast(df, model_type, forecast_days):
         X, Y = np.array(X), np.array(Y)
         X = np.reshape(X, (X.shape[0], X.shape[1], 1))
         
-        # FIX 2: Streamlined architecture to prevent regression to the mean
         model = Sequential()
         model.add(LSTM(50, return_sequences=False, input_shape=(X.shape[1], 1)))
         model.add(Dense(25))
         model.add(Dense(1))
         
         model.compile(optimizer='adam', loss='mse')
-        
-        # FIX 3: Higher epochs (20) for accuracy, but larger batch_size (64) for speed
         model.fit(X, Y, epochs=20, batch_size=64, verbose=0) 
         
-        # Recursive prediction loop
         curr_batch = scaled_data[-window_size:].reshape((1, window_size, 1))
         preds = []
+        
+        # Predict future returns
         for _ in range(forecast_days):
             p = model.predict(curr_batch, verbose=0)[0,0]
             preds.append(p)
             curr_batch = np.append(curr_batch[:, 1:, :], [[[p]]], axis=1)
             
-        forecast = scaler.inverse_transform(np.array(preds).reshape(-1, 1)).flatten()
+        # Unscale the returns
+        predicted_returns = scaler.inverse_transform(np.array(preds).reshape(-1, 1)).flatten()
+        
+        # Reconstruct the absolute prices by applying the returns to the last known price
+        last_price = y.iloc[-1]
+        forecast = [last_price * (1 + predicted_returns[0])]
+        for i in range(1, forecast_days):
+            forecast.append(forecast[-1] * (1 + predicted_returns[i]))
+            
+        forecast = np.array(forecast)
+
     return future_dates, forecast
 
 # --- SIDEBAR CONTROLS ---
