@@ -96,7 +96,6 @@ if model_type == 'ARIMA':
         
    elif model_type == 'LSTM':
         from tensorflow.keras.layers import Dropout
-        
         scaler = MinMaxScaler()
         scaled_data = scaler.fit_transform(y.values.reshape(-1, 1))
         
