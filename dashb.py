@@ -73,16 +73,20 @@ def run_forecast(df, model_type, forecast_days):
         
         # 2. Walk-Forward Prediction Loop
         # Instead of predicting 30 days at once, we predict 1 day, 30 times.
+        # 2. Walk-Forward Prediction Loop
         forecast = []
-        # Create a copy of the model so we don't ruin the original
         working_model = model 
         
         for i in range(forecast_days):
             # Predict just the next 1 day
-            next_pred = working_model.predict(n_periods=1)[0]
+            raw_pred = working_model.predict(n_periods=1)
+            
+            # Safely extract the raw number (handles both Pandas Series and Numpy Arrays)
+            next_pred = raw_pred.values[0] if hasattr(raw_pred, 'values') else raw_pred[0]
+            
             forecast.append(next_pred)
             
-            # "Update" the model with its own prediction so it can step forward
+            # "Update" the model with its own prediction
             working_model.update([next_pred])
             
         forecast = np.array(forecast)
