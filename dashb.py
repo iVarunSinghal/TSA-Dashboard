@@ -60,16 +60,32 @@ def run_forecast(df, model_type, forecast_days):
     y = df['Close']
     future_dates = pd.date_range(start=df.index[-1], periods=forecast_days+1, freq='B')[1:]
     
-    if model_type == 'ARIMA':
-        # FIXED: Expanded search parameters so it doesn't default to a Random Walk (flat line)
+if model_type == 'ARIMA':
+        # 1. Fit a slightly more rigid model to historical data
+        # We manually force it to look at autoregressive terms (p=2) and moving average terms (q=2)
         model = pm.auto_arima(y, 
-                              start_p=1, start_q=1,
-                              max_p=5, max_q=5, 
-                              d=None,           
+                              start_p=2, max_p=3, 
+                              start_q=2, max_q=3,
+                              d=1, # Force first-order differencing
                               seasonal=False, 
                               stepwise=True, 
                               suppress_warnings=True)
-        forecast = model.predict(n_periods=forecast_days).values
+        
+        # 2. Walk-Forward Prediction Loop
+        # Instead of predicting 30 days at once, we predict 1 day, 30 times.
+        forecast = []
+        # Create a copy of the model so we don't ruin the original
+        working_model = model 
+        
+        for i in range(forecast_days):
+            # Predict just the next 1 day
+            next_pred = working_model.predict(n_periods=1)[0]
+            forecast.append(next_pred)
+            
+            # "Update" the model with its own prediction so it can step forward
+            working_model.update([next_pred])
+            
+        forecast = np.array(forecast)
         
     elif model_type == 'Prophet':
         prophet_df = df.reset_index()[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
@@ -78,31 +94,34 @@ def run_forecast(df, model_type, forecast_days):
         future = m.make_future_dataframe(periods=forecast_days, freq='B')
         forecast = m.predict(future)['yhat'].tail(forecast_days).values
         
-    elif model_type == 'LSTM':
-        from tensorflow.keras.layers import Dropout # Added missing import
+   elif model_type == 'LSTM':
+        from tensorflow.keras.layers import Dropout
         
         scaler = MinMaxScaler()
         scaled_data = scaler.fit_transform(y.values.reshape(-1, 1))
+        
+        # FIX 1: Reduced window size to 20 to heavily weight recent momentum
+        window_size = 20
         X, Y = [], []
-        for i in range(60, len(scaled_data)):
-            X.append(scaled_data[i-60:i, 0])
+        for i in range(window_size, len(scaled_data)):
+            X.append(scaled_data[i-window_size:i, 0])
             Y.append(scaled_data[i, 0])
         X, Y = np.array(X), np.array(Y)
         X = np.reshape(X, (X.shape[0], X.shape[1], 1))
         
-        # FIXED: Added a second LSTM layer and Dropout to prevent underfitting
+        # FIX 2: Streamlined architecture to prevent regression to the mean
         model = Sequential()
-        model.add(LSTM(50, return_sequences=True, input_shape=(X.shape[1], 1)))
-        model.add(Dropout(0.2))
-        model.add(LSTM(50, return_sequences=False))
+        model.add(LSTM(50, return_sequences=False, input_shape=(X.shape[1], 1)))
+        model.add(Dense(25))
         model.add(Dense(1))
         
         model.compile(optimizer='adam', loss='mse')
         
-        # FIXED: Increased epochs to 10 so it actually learns the trend
-        model.fit(X, Y, epochs=10, batch_size=32, verbose=0) 
+        # FIX 3: Higher epochs (20) for accuracy, but larger batch_size (64) for speed
+        model.fit(X, Y, epochs=20, batch_size=64, verbose=0) 
         
-        curr_batch = scaled_data[-60:].reshape((1, 60, 1))
+        # Recursive prediction loop
+        curr_batch = scaled_data[-window_size:].reshape((1, window_size, 1))
         preds = []
         for _ in range(forecast_days):
             p = model.predict(curr_batch, verbose=0)[0,0]
@@ -110,8 +129,6 @@ def run_forecast(df, model_type, forecast_days):
             curr_batch = np.append(curr_batch[:, 1:, :], [[[p]]], axis=1)
             
         forecast = scaler.inverse_transform(np.array(preds).reshape(-1, 1)).flatten()
-        
-    return future_dates, forecast
 
 # --- SIDEBAR CONTROLS ---
 st.sidebar.header("⚙️ Strategy Parameters")
