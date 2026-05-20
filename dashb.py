@@ -61,15 +61,31 @@ def run_forecast(df, model_type, forecast_days):
     future_dates = pd.date_range(start=df.index[-1], periods=forecast_days+1, freq='B')[1:]
     
     if model_type == 'ARIMA':
-        model = pm.auto_arima(y, seasonal=False, stepwise=True, suppress_warnings=True)
+        # Force the model to test more complex parameters
+        model = pm.auto_arima(y, 
+                              start_p=1, start_q=1,
+                              max_p=5, max_q=5, # Allow it to look further back
+                              d=None,           # Let it find the optimal differencing
+                              seasonal=False, 
+                              stepwise=True, 
+                              suppress_warnings=True)
+        
         forecast = model.predict(n_periods=forecast_days).values
+    
+    
+    
     elif model_type == 'Prophet':
         prophet_df = df.reset_index()[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
         prophet_df['ds'] = prophet_df['ds'].dt.tz_localize(None)
         m = Prophet(daily_seasonality=True).fit(prophet_df)
         future = m.make_future_dataframe(periods=forecast_days, freq='B')
         forecast = m.predict(future)['yhat'].tail(forecast_days).values
+   
+    
+    
     elif model_type == 'LSTM':
+        from tensorflow.keras.layers import Dropout # Added missing import
+        
         scaler = MinMaxScaler()
         scaled_data = scaler.fit_transform(y.values.reshape(-1, 1))
         X, Y = [], []
@@ -79,9 +95,17 @@ def run_forecast(df, model_type, forecast_days):
         X, Y = np.array(X), np.array(Y)
         X = np.reshape(X, (X.shape[0], X.shape[1], 1))
         
-        model = Sequential([LSTM(50, input_shape=(X.shape[1], 1)), Dense(1)])
+        # FIXED: Added a second LSTM layer and Dropout to prevent underfitting
+        model = Sequential()
+        model.add(LSTM(50, return_sequences=True, input_shape=(X.shape[1], 1)))
+        model.add(Dropout(0.2))
+        model.add(LSTM(50, return_sequences=False))
+        model.add(Dense(1))
+        
         model.compile(optimizer='adam', loss='mse')
-        model.fit(X, Y, epochs=3, batch_size=32, verbose=0) # Kept at 3 epochs for Streamlit speed
+        
+        # FIXED: Increased epochs to 10 so it actually learns the trend
+        model.fit(X, Y, epochs=10, batch_size=32, verbose=0) 
         
         curr_batch = scaled_data[-60:].reshape((1, 60, 1))
         preds = []
@@ -89,6 +113,7 @@ def run_forecast(df, model_type, forecast_days):
             p = model.predict(curr_batch, verbose=0)[0,0]
             preds.append(p)
             curr_batch = np.append(curr_batch[:, 1:, :], [[[p]]], axis=1)
+            
         forecast = scaler.inverse_transform(np.array(preds).reshape(-1, 1)).flatten()
         
     return future_dates, forecast
