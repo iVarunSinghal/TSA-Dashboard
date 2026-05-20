@@ -32,6 +32,12 @@ SECTORS = {
 @st.cache_data
 def load_data(ticker):
     df = yf.download(ticker, start='2020-01-01', end='2024-01-01', progress=False)
+
+    if df.empty:
+        st.error(f"Yahoo Finance failed to return data for {ticker}. Please try again.")
+        st.stop()
+
+    
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     df = df.dropna()
