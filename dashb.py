@@ -60,7 +60,7 @@ def run_forecast(df, model_type, forecast_days):
     y = df['Close']
     future_dates = pd.date_range(start=df.index[-1], periods=forecast_days+1, freq='B')[1:]
     
-if model_type == 'ARIMA':
+    if model_type == 'ARIMA':
         # 1. Fit a slightly more rigid model to historical data
         # We manually force it to look at autoregressive terms (p=2) and moving average terms (q=2)
         model = pm.auto_arima(y, 
@@ -87,14 +87,14 @@ if model_type == 'ARIMA':
             
         forecast = np.array(forecast)
         
-        elif model_type == 'Prophet':
+    elif model_type == 'Prophet':
         prophet_df = df.reset_index()[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
         prophet_df['ds'] = prophet_df['ds'].dt.tz_localize(None)
         m = Prophet(daily_seasonality=True).fit(prophet_df)
         future = m.make_future_dataframe(periods=forecast_days, freq='B')
         forecast = m.predict(future)['yhat'].tail(forecast_days).values
         
-       elif model_type == 'LSTM':
+    elif model_type == 'LSTM':
         from tensorflow.keras.layers import Dropout
         scaler = MinMaxScaler()
         scaled_data = scaler.fit_transform(y.values.reshape(-1, 1))
