@@ -132,6 +132,7 @@ def run_forecast(df, model_type, forecast_days):
             curr_batch = np.append(curr_batch[:, 1:, :], [[[p]]], axis=1)
             
         forecast = scaler.inverse_transform(np.array(preds).reshape(-1, 1)).flatten()
+    return future_dates, forecast
 
 # --- SIDEBAR CONTROLS ---
 st.sidebar.header("⚙️ Strategy Parameters")
