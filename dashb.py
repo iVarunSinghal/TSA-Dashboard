@@ -61,28 +61,23 @@ def run_forecast(df, model_type, forecast_days):
     future_dates = pd.date_range(start=df.index[-1], periods=forecast_days+1, freq='B')[1:]
     
     if model_type == 'ARIMA':
-        # Force the model to test more complex parameters
+        # FIXED: Expanded search parameters so it doesn't default to a Random Walk (flat line)
         model = pm.auto_arima(y, 
                               start_p=1, start_q=1,
-                              max_p=5, max_q=5, # Allow it to look further back
-                              d=None,           # Let it find the optimal differencing
+                              max_p=5, max_q=5, 
+                              d=None,           
                               seasonal=False, 
                               stepwise=True, 
                               suppress_warnings=True)
-        
         forecast = model.predict(n_periods=forecast_days).values
-    
-    
-    
+        
     elif model_type == 'Prophet':
         prophet_df = df.reset_index()[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
         prophet_df['ds'] = prophet_df['ds'].dt.tz_localize(None)
         m = Prophet(daily_seasonality=True).fit(prophet_df)
         future = m.make_future_dataframe(periods=forecast_days, freq='B')
         forecast = m.predict(future)['yhat'].tail(forecast_days).values
-   
-    
-    
+        
     elif model_type == 'LSTM':
         from tensorflow.keras.layers import Dropout # Added missing import
         
